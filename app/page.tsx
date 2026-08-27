@@ -5,6 +5,60 @@ import { useState } from "react";
 type Level = "A1" | "A2" | "B1" | "B2";
 type Mode = "write" | "translate";
 
+type EvaluationStatus =
+  | "correct"
+  | "alternative"
+  | "error"
+  | "uncertain";
+
+type ErrorCategory =
+  | "grammar"
+  | "vocabulary"
+  | "word_order"
+  | "context_form";
+
+type SurfaceError = {
+  id: string;
+  category: ErrorCategory;
+  status: EvaluationStatus;
+  learnerText: string;
+  correctedText?: string;
+  explanation: string;
+  underlyingConceptIds: string[];
+  severity?: "minor" | "moderate" | "major";
+};
+
+type SentenceEvaluation = {
+  sentenceId: string;
+  learnerText: string;
+  status: EvaluationStatus;
+  errors: SurfaceError[];
+  overallExplanation?: string;
+};
+
+type ParameterEvaluation = {
+  category: ErrorCategory;
+  score: number;
+  errorCount: number;
+  summary: string;
+};
+
+type ExerciseEvaluation = {
+  exerciseId: string;
+  evaluatedAt: string;
+  overallScore: number;
+  status: EvaluationStatus;
+  parameters: {
+    grammar: ParameterEvaluation;
+    vocabulary: ParameterEvaluation;
+    wordOrder: ParameterEvaluation;
+    contextForm: ParameterEvaluation;
+  };
+  sentences: SentenceEvaluation[];
+  underlyingConceptIds: string[];
+  reinforcementConceptIds: string[];
+};
+
 const passages: Record<Level, string> = {
   A1: `My name is David. I live in Berlin with my sister.
 
@@ -66,9 +120,15 @@ export default function Home() {
   const [level, setLevel] = useState<Level>("A1");
   const [answer, setAnswer] = useState("");
 
+  const [evaluation, setEvaluation] =
+    useState<ExerciseEvaluation | null>(null);
+
+  const [isChecking, setIsChecking] = useState(false);
+  const [evaluationError, setEvaluationError] = useState("");
+
   const insertCharacter = (character: string) => {
     const textarea = document.getElementById(
-      "german-answer"
+      "german-answer",
     ) as HTMLTextAreaElement | null;
 
     if (!textarea) {
@@ -89,17 +149,86 @@ export default function Home() {
     requestAnimationFrame(() => {
       textarea.focus();
 
-      const cursorPosition = start + character.length;
+      const cursorPosition =
+        start + character.length;
 
       textarea.setSelectionRange(
         cursorPosition,
-        cursorPosition
+        cursorPosition,
       );
     });
   };
 
   const clearAnswer = () => {
     setAnswer("");
+    setEvaluation(null);
+    setEvaluationError("");
+  };
+
+  const handleLevelChange = (item: Level) => {
+    setLevel(item);
+    setAnswer("");
+    setEvaluation(null);
+    setEvaluationError("");
+  };
+
+  const handleModeChange = (nextMode: Mode) => {
+    setMode(nextMode);
+    setAnswer("");
+    setEvaluation(null);
+    setEvaluationError("");
+  };
+
+  const handleCheck = async () => {
+    if (!answer.trim()) {
+      setEvaluationError(
+        "Please write your German answer before checking it.",
+      );
+      return;
+    }
+
+    setIsChecking(true);
+    setEvaluationError("");
+    setEvaluation(null);
+
+    try {
+      const response = await fetch(
+        "/api/ai/evaluate",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            exerciseId: `a1-writing-${level.toLowerCase()}`,
+            level,
+            englishText: passages[level],
+            learnerGerman: answer,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error ||
+            "The evaluation could not be completed.",
+        );
+      }
+
+      setEvaluation(data.evaluation);
+    } catch (error) {
+      console.error(error);
+
+      setEvaluationError(
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while evaluating your answer.",
+      );
+    } finally {
+      setIsChecking(false);
+    }
   };
 
   const wordCount = answer.trim()
@@ -107,6 +236,27 @@ export default function Home() {
     : 0;
 
   const characterCount = answer.length;
+
+  const parameterItems = evaluation
+    ? [
+        {
+          label: "Grammar",
+          value: evaluation.parameters.grammar,
+        },
+        {
+          label: "Vocabulary",
+          value: evaluation.parameters.vocabulary,
+        },
+        {
+          label: "Word Order",
+          value: evaluation.parameters.wordOrder,
+        },
+        {
+          label: "Context / Form",
+          value: evaluation.parameters.contextForm,
+        },
+      ]
+    : [];
 
   return (
     <main className="app-shell">
@@ -133,7 +283,7 @@ export default function Home() {
                 ? "top-nav-button active"
                 : "top-nav-button"
             }
-            onClick={() => setMode("write")}
+            onClick={() => handleModeChange("write")}
           >
             Write &amp; Evaluate
           </button>
@@ -144,7 +294,7 @@ export default function Home() {
                 ? "top-nav-button active"
                 : "top-nav-button"
             }
-            onClick={() => setMode("translate")}
+            onClick={() => handleModeChange("translate")}
           >
             Translate
           </button>
@@ -163,17 +313,20 @@ export default function Home() {
             🔥 <strong>7 Day Streak</strong>
           </div>
 
-          <button className="top-icon">♧</button>
-          <button className="top-icon">⚙</button>
+          <button className="top-icon">
+            ♧
+          </button>
+
+          <button className="top-icon">
+            ⚙
+          </button>
         </div>
       </header>
 
       {/* MAIN WORKSPACE */}
       <div className="workspace">
-
         {/* LEFT SIDEBAR */}
         <aside className="panel left-panel">
-
           <section className="sidebar-section">
             <div className="section-heading">
               1. MODE
@@ -185,7 +338,7 @@ export default function Home() {
                   ? "sidebar-button selected"
                   : "sidebar-button"
               }
-              onClick={() => setMode("write")}
+              onClick={() => handleModeChange("write")}
             >
               ✎ &nbsp; Write &amp; Evaluate
             </button>
@@ -196,7 +349,9 @@ export default function Home() {
                   ? "sidebar-button selected"
                   : "sidebar-button"
               }
-              onClick={() => setMode("translate")}
+              onClick={() =>
+                handleModeChange("translate")
+              }
             >
               文 &nbsp; Translate
             </button>
@@ -217,14 +372,13 @@ export default function Home() {
                         ? "level-button selected"
                         : "level-button"
                     }
-                    onClick={() => {
-                      setLevel(item);
-                      setAnswer("");
-                    }}
+                    onClick={() =>
+                      handleLevelChange(item)
+                    }
                   >
                     {item}
                   </button>
-                )
+                ),
               )}
             </div>
           </section>
@@ -234,11 +388,24 @@ export default function Home() {
               3. EXERCISE
             </div>
 
-            <button className="large-blue-button">
+            <button
+              className="large-blue-button"
+              onClick={() => {
+                setAnswer("");
+                setEvaluation(null);
+                setEvaluationError("");
+              }}
+            >
               ⟳ &nbsp; New Exercise
             </button>
 
-            <button className="large-white-button">
+            <button
+              className="large-white-button"
+              onClick={() => {
+                setEvaluation(null);
+                setEvaluationError("");
+              }}
+            >
               Change Level
             </button>
           </section>
@@ -264,7 +431,7 @@ export default function Home() {
                   >
                     {character}
                   </button>
-                )
+                ),
               )}
             </div>
           </section>
@@ -286,7 +453,6 @@ export default function Home() {
 
         {/* CENTRE */}
         <section className="panel centre-panel">
-
           {/* ENGLISH PASSAGE */}
           <div className="passage-header">
             <div className="blue-heading">
@@ -328,9 +494,17 @@ export default function Home() {
           <textarea
             id="german-answer"
             value={answer}
-            onChange={(event) =>
-              setAnswer(event.target.value)
-            }
+            onChange={(event) => {
+              setAnswer(event.target.value);
+
+              if (evaluation) {
+                setEvaluation(null);
+              }
+
+              if (evaluationError) {
+                setEvaluationError("");
+              }
+            }}
             className="typing-area"
             placeholder="Beginne hier zu schreiben..."
             spellCheck={false}
@@ -338,7 +512,6 @@ export default function Home() {
 
           {/* CONTROLS */}
           <div className="typing-controls">
-
             <div className="control-top">
               <div className="statistics">
                 <span>
@@ -355,18 +528,36 @@ export default function Home() {
                 <button
                   className="clear-button"
                   onClick={clearAnswer}
+                  disabled={isChecking}
                 >
                   🗑 &nbsp; Clear
                 </button>
 
                 <button
                   className="check-button"
-                  onClick={() => {}}
+                  onClick={handleCheck}
+                  disabled={
+                    isChecking || !answer.trim()
+                  }
                 >
-                  ✓ &nbsp; Check
+                  {isChecking
+                    ? "⏳  Checking..."
+                    : "✓  Check"}
                 </button>
               </div>
             </div>
+
+            {evaluationError && (
+              <div className="control-divider" />
+            )}
+
+            {evaluationError && (
+              <div className="feedback-card">
+                <div className="feedback-message">
+                  {evaluationError}
+                </div>
+              </div>
+            )}
 
             <div className="control-divider" />
 
@@ -394,13 +585,11 @@ export default function Home() {
 
         {/* RIGHT ANALYSIS */}
         <aside className="panel right-panel">
-
           <div className="analysis-title">
             COMPLETE ANALYSIS
           </div>
 
           <div className="analysis-content">
-
             {/* SCORE */}
             <div className="score-card">
               <div className="score-label">
@@ -409,62 +598,302 @@ export default function Home() {
 
               <div className="score-layout">
                 <div className="score-circle">
-                  <span>—</span>
+                  <span>
+                    {evaluation
+                      ? Math.round(
+                          evaluation.overallScore,
+                        )
+                      : "—"}
+                  </span>
                 </div>
 
                 <div>
                   <div className="score-status">
-                    Ready!
+                    {evaluation
+                      ? evaluation.status === "correct"
+                        ? "Excellent!"
+                        : evaluation.status ===
+                            "alternative"
+                          ? "Good!"
+                          : evaluation.status ===
+                              "uncertain"
+                            ? "Needs review"
+                            : "Needs correction"
+                      : isChecking
+                        ? "Checking..."
+                        : "Ready!"}
                   </div>
 
                   <div className="score-description">
-                    Complete the exercise to receive
-                    your evaluation.
+                    {evaluation
+                      ? "Your submission has been evaluated across all four parameters."
+                      : isChecking
+                        ? "The tutor is analysing your German."
+                        : "Complete the exercise to receive your evaluation."}
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* FOUR PARAMETERS */}
+            {evaluation && (
+              <>
+                <div className="analysis-section-title">
+                  FOUR-PARAMETER EVALUATION
+                </div>
+
+                <div className="mistakes-card">
+                  {parameterItems.map((item) => (
+                    <div
+                      className="mistake-row"
+                      key={item.label}
+                    >
+                      <div>
+                        <strong>
+                          {item.label}
+                        </strong>
+
+                        <div>
+                          {item.value.summary}
+                        </div>
+                      </div>
+
+                      <strong>
+                        {Math.round(item.value.score)}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
 
             {/* SENTENCE BREAKDOWN */}
             <div className="analysis-section-title">
               SENTENCE BREAKDOWN
             </div>
 
-            <div className="analysis-placeholder">
-              Your sentence-by-sentence results will
-              appear here after you press Check.
-            </div>
+            {!evaluation && (
+              <div className="analysis-placeholder">
+                Your sentence-by-sentence results will
+                appear here after you press Check.
+              </div>
+            )}
+
+            {evaluation &&
+              evaluation.sentences.map(
+                (sentence) => (
+                  <div
+                    className="feedback-card"
+                    key={sentence.sentenceId}
+                  >
+                    <div className="feedback-message">
+                      <strong>
+                        Your sentence
+                      </strong>
+
+                      <div>
+                        {sentence.learnerText}
+                      </div>
+
+                      {sentence.errors.length ===
+                        0 && (
+                        <div>
+                          ✓ No surface errors
+                          identified.
+                        </div>
+                      )}
+
+                      {sentence.errors.map(
+                        (error) => (
+                          <div
+                            key={error.id}
+                          >
+                            <div>
+                              <strong>
+                                {error.category ===
+                                "word_order"
+                                  ? "Word Order"
+                                  : error.category ===
+                                      "context_form"
+                                    ? "Context / Form"
+                                    : error.category
+                                        .charAt(
+                                          0,
+                                        )
+                                        .toUpperCase() +
+                                      error.category.slice(
+                                        1,
+                                      )}
+                              </strong>
+                            </div>
+
+                            <div>
+                              <strong>
+                                Correction:
+                              </strong>{" "}
+                              {error.correctedText ||
+                                "See explanation"}
+                            </div>
+
+                            <div>
+                              {error.explanation}
+                            </div>
+
+                            {error.underlyingConceptIds
+                              .length >
+                              0 && (
+                              <div>
+                                <strong>
+                                  Learning concepts:
+                                </strong>{" "}
+                                {error.underlyingConceptIds.join(
+                                  ", ",
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ),
+                      )}
+
+                      {sentence.overallExplanation && (
+                        <div>
+                          <strong>
+                            Explanation:
+                          </strong>{" "}
+                          {
+                            sentence.overallExplanation
+                          }
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
 
             {/* DETAILED FEEDBACK */}
             <div className="analysis-section-title">
               DETAILED FEEDBACK
             </div>
 
-            <div className="feedback-card">
-              <div className="feedback-message">
-                Write your German translation and
-                submit it for analysis.
+            {!evaluation && (
+              <div className="feedback-card">
+                <div className="feedback-message">
+                  Write your German translation and
+                  submit it for analysis.
+                </div>
               </div>
-            </div>
+            )}
+
+            {evaluation && (
+              <div className="feedback-card">
+                <div className="feedback-message">
+                  {evaluation.sentences.length >
+                  0
+                    ? evaluation.sentences
+                        .map(
+                          (sentence) =>
+                            sentence.overallExplanation,
+                        )
+                        .filter(Boolean)
+                        .join(" ")
+                    : "No additional feedback was returned."}
+                </div>
+              </div>
+            )}
 
             {/* COMMON MISTAKES */}
             <div className="analysis-section-title">
-              COMMON MISTAKES
+              LEARNING CONCEPTS
             </div>
 
-            <div className="mistakes-card">
-              <div className="mistake-row">
-                <span>• Grammar patterns</span>
-              </div>
+            {!evaluation && (
+              <div className="mistakes-card">
+                <div className="mistake-row">
+                  <span>
+                    • Grammar patterns
+                  </span>
+                </div>
 
-              <div className="mistake-row">
-                <span>• Word order</span>
-              </div>
+                <div className="mistake-row">
+                  <span>
+                    • Word order
+                  </span>
+                </div>
 
-              <div className="mistake-row">
-                <span>• Vocabulary usage</span>
+                <div className="mistake-row">
+                  <span>
+                    • Vocabulary usage
+                  </span>
+                </div>
+
+                <div className="mistake-row">
+                  <span>
+                    • Context / form
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
+
+            {evaluation && (
+              <div className="mistakes-card">
+                <div className="mistake-row">
+                  <span>
+                    <strong>
+                      Underlying concepts
+                    </strong>
+                  </span>
+                </div>
+
+                {evaluation.underlyingConceptIds
+                  .length === 0 && (
+                  <div className="mistake-row">
+                    <span>
+                      No specific underlying
+                      concepts identified.
+                    </span>
+                  </div>
+                )}
+
+                {evaluation.underlyingConceptIds.map(
+                  (conceptId) => (
+                    <div
+                      className="mistake-row"
+                      key={conceptId}
+                    >
+                      <span>
+                        • {conceptId}
+                      </span>
+                    </div>
+                  ),
+                )}
+
+                {evaluation.reinforcementConceptIds
+                  .length > 0 && (
+                  <>
+                    <div className="mistake-row">
+                      <span>
+                        <strong>
+                          Recommended reinforcement
+                        </strong>
+                      </span>
+                    </div>
+
+                    {evaluation.reinforcementConceptIds.map(
+                      (conceptId) => (
+                        <div
+                          className="mistake-row"
+                          key={conceptId}
+                        >
+                          <span>
+                            • {conceptId}
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </aside>
       </div>

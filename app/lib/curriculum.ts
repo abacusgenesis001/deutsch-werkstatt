@@ -120,6 +120,40 @@ export const CURRICULUM: Record<CEFRLevel, CurriculumLevel> = {
         prerequisiteIds: ["a1-noun-gender"],
       },
       {
+        id: "a1-dative-case-foundation",
+        name: "Basic dative case",
+        type: "grammar",
+        domain: "grammar_foundations",
+        prerequisiteIds: [
+          "a1-definite-articles",
+          "a1-indefinite-articles",
+        ],
+      },
+      {
+        id: "a1-dative-prepositions",
+        name: "Common prepositions requiring the dative",
+        type: "grammar",
+        domain: "grammar_foundations",
+        prerequisiteIds: ["a1-dative-case-foundation"],
+      },
+      {
+        id: "a1-possessive-pronouns",
+        name: "Basic possessive pronouns",
+        type: "grammar",
+        domain: "grammar_foundations",
+        prerequisiteIds: ["a1-indefinite-articles"],
+      },
+      {
+        id: "a1-possessive-pronoun-declension",
+        name: "Possessive pronoun forms according to case and gender",
+        type: "context_form",
+        domain: "grammar_foundations",
+        prerequisiteIds: [
+          "a1-possessive-pronouns",
+          "a1-dative-case-foundation",
+        ],
+      },
+      {
         id: "a1-basic-word-order",
         name: "Basic German main-clause word order",
         type: "word_order",
@@ -194,7 +228,10 @@ export const CURRICULUM: Record<CEFRLevel, CurriculumLevel> = {
         name: "Basic modal verbs",
         type: "grammar",
         domain: "grammar_foundations",
-        prerequisiteIds: ["a1-present-tense", "a1-basic-word-order"],
+        prerequisiteIds: [
+          "a1-present-tense",
+          "a1-basic-word-order",
+        ],
       },
     ],
   },

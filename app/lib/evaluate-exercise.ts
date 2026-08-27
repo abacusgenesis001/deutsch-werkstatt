@@ -1,5 +1,6 @@
 import type { Exercise } from "./exercise-model";
 import type { ExerciseEvaluation } from "./evaluation-model";
+import { evaluateWithAI } from "./ai-evaluator";
 
 export interface EvaluationRequest {
   exercise: Exercise;
@@ -12,59 +13,63 @@ export interface ExerciseEvaluator {
   ): Promise<ExerciseEvaluation>;
 }
 
-/**
- * Placeholder evaluator.
- *
- * This does NOT attempt to evaluate German.
- * The real evaluator will be connected later.
- */
+function buildSourceText(exercise: Exercise): string {
+  if (exercise.passage?.trim()) {
+    return exercise.passage.trim();
+  }
+
+  return exercise.sentences
+    .map((sentence) => sentence.sourceText.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildLearnerGerman(
+  exercise: Exercise,
+  learnerResponses: Record<string, string>,
+): string {
+  return exercise.sentences
+    .map((sentence) => {
+      const response =
+        learnerResponses[sentence.id] ?? "";
+
+      if (!response.trim()) {
+        return "";
+      }
+
+      return response.trim();
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 export async function evaluateExercise(
   request: EvaluationRequest,
 ): Promise<ExerciseEvaluation> {
-  const { exercise } = request;
+  const { exercise, learnerResponses } = request;
 
-  const now = new Date().toISOString();
+  const englishText = buildSourceText(exercise);
+  const learnerGerman = buildLearnerGerman(
+    exercise,
+    learnerResponses,
+  );
 
-  return {
+  if (!englishText) {
+    throw new Error(
+      "Exercise does not contain source text for evaluation.",
+    );
+  }
+
+  if (!learnerGerman) {
+    throw new Error(
+      "Learner response is empty.",
+    );
+  }
+
+  return evaluateWithAI({
     exerciseId: exercise.id,
-    evaluatedAt: now,
-    overallScore: 0,
-    status: "uncertain",
-
-    parameters: {
-      grammar: {
-        category: "grammar",
-        score: 0,
-        errorCount: 0,
-        summary: "Evaluation not yet connected.",
-      },
-
-      vocabulary: {
-        category: "vocabulary",
-        score: 0,
-        errorCount: 0,
-        summary: "Evaluation not yet connected.",
-      },
-
-      wordOrder: {
-        category: "word_order",
-        score: 0,
-        errorCount: 0,
-        summary: "Evaluation not yet connected.",
-      },
-
-      contextForm: {
-        category: "context_form",
-        score: 0,
-        errorCount: 0,
-        summary: "Evaluation not yet connected.",
-      },
-    },
-
-    sentences: [],
-
-    underlyingConceptIds: [],
-
-    reinforcementConceptIds: [],
-  };
+    level: exercise.level,
+    englishText,
+    learnerGerman,
+  });
 }
